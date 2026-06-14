@@ -1,16 +1,3 @@
-# Build stage - install all deps (including devDependencies) and compile TypeScript
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm ci
-
-COPY . .
-
-RUN npm run build
-
-# Production stage - only production dependencies and compiled output
 FROM node:20-alpine
 
 WORKDIR /app
@@ -18,7 +5,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-COPY --from=builder /app/dist ./dist
+COPY . .
+
+RUN npm run build
 
 EXPOSE 5000
 

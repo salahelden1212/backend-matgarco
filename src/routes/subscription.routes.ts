@@ -8,6 +8,7 @@ import {
   downgradePlan,
   cancelSubscription,
   listInvoices,
+  buyAiCredits,
 } from '../controllers/subscription.controller';
 
 const router = Router();
@@ -24,5 +25,6 @@ router.post('/subscribe', subscribeToPlan);
 router.post('/upgrade', upgradePlan);
 router.post('/downgrade', downgradePlan);
 router.post('/cancel', cancelSubscription);
+router.post('/buy-ai-credits', buyAiCredits);
 
 export default router;

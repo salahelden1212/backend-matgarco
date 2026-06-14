@@ -65,14 +65,18 @@ export const getMySubscription = async (req: AuthRequest, res: Response) => {
   const merchantId = req.user?.merchantId;
   if (!merchantId) throw new AppError('Merchant not found', 403);
 
-  const subscription = await Subscription.findOne({ merchantId });
+  const [subscription, merchant] = await Promise.all([
+    Subscription.findOne({ merchantId }),
+    Merchant.findById(merchantId).select('limits'),
+  ]);
+
   if (!subscription) {
     // Return 200 with null data to prevent console 404 errors for legitimate empty states
-    return res.status(200).json({ success: true, data: null, message: 'No subscription found' });
+    return res.status(200).json({ success: true, data: null, merchantLimits: merchant?.limits, message: 'No subscription found' });
   }
 
   const planDetails = PLANS[subscription.plan];
-  return res.status(200).json({ success: true, data: { subscription, planDetails } });
+  return res.status(200).json({ success: true, data: { subscription, planDetails, merchantLimits: merchant?.limits } });
 };
 
 // ─────────────────────────────────────────────
@@ -385,5 +389,84 @@ export const getAllSubscriptions = async (req: AuthRequest, res: Response) => {
     total,
     page,
     pages: Math.ceil(total / limit),
+  });
+};
+
+// ─────────────────────────────────────────────
+// POST /api/subscriptions/buy-ai-credits
+// ─────────────────────────────────────────────
+/**
+ * @desc    Purchase additional AI credits for the merchant
+ * @route   POST /api/subscriptions/buy-ai-credits
+ * @access  Private (Merchant)
+ */
+export const buyAiCredits = async (req: AuthRequest, res: Response) => {
+  const merchantId = req.user?.merchantId;
+  if (!merchantId) throw new AppError('Merchant not found', 403);
+
+  const { credits } = req.body as { credits: number };
+  if (!credits || credits <= 0) {
+    return res.status(400).json({ success: false, message: 'رصيد النقاط غير صالح' });
+  }
+
+  const merchant = await Merchant.findById(merchantId);
+  if (!merchant) {
+    return res.status(404).json({ success: false, message: 'Merchant not found' });
+  }
+
+  if (merchant.limits.aiCreditsPerMonth === -1) {
+    return res.status(400).json({ success: false, message: 'باقتك الحالية تحتوي على رصيد ذكاء اصطناعي غير محدود' });
+  }
+
+  let amount = 0;
+  let description = '';
+  if (credits === 100) {
+    amount = 50;
+    description = 'شراء رصيد ذكاء اصطناعي إضافي (+100 نقطة)';
+  } else if (credits === 500) {
+    amount = 200;
+    description = 'شراء رصيد ذكاء اصطناعي إضافي (+500 نقطة)';
+  } else if (credits === 1000) {
+    amount = 350;
+    description = 'شراء رصيد ذكاء اصطناعي إضافي (+1000 نقطة)';
+  } else {
+    amount = credits * 0.5;
+    description = `شراء رصيد ذكاء اصطناعي إضافي (+${credits} نقطة)`;
+  }
+
+  const subscription = await Subscription.findOne({ merchantId });
+  if (!subscription) {
+    return res.status(404).json({ success: false, message: 'لم يتم العثور على اشتراك نشط للمتجر لربط الفاتورة به' });
+  }
+
+  const invoiceNumber = await generateInvoiceNumber();
+  const now = new Date();
+  
+  subscription.invoices.push({
+    invoiceNumber,
+    amount,
+    currency: 'EGP',
+    status: 'paid',
+    description,
+    billingPeriodStart: now,
+    billingPeriodEnd: now,
+    paidAt: now,
+    paymentMethod: 'credit_card',
+    createdAt: now,
+  } as any);
+
+  await subscription.save();
+
+  // Increment credit limit
+  merchant.limits.aiCreditsPerMonth = (merchant.limits.aiCreditsPerMonth || 0) + credits;
+  await merchant.save();
+
+  return res.status(200).json({ 
+    success: true, 
+    message: `تم شراء ${credits} نقطة ذكاء اصطناعي بنجاح وتحديث الفاتورة`,
+    data: {
+      aiCreditsPerMonth: merchant.limits.aiCreditsPerMonth,
+      aiCreditsUsed: merchant.limits.aiCreditsUsed
+    }
   });
 };
